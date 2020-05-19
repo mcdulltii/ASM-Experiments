@@ -1,8 +1,71 @@
 #include <stdio.h>
 #include <Windows.h>
 #include "ntdll.h"
+#include <iostream>
 
 typedef BOOL (WINAPI *pBeep)(DWORD Frequency,DWORD Duration);
+
+void WINAPI calcHash()
+{
+	PIMAGE_DOS_HEADER pIDH;
+	PIMAGE_NT_HEADERS pINH;
+	PIMAGE_EXPORT_DIRECTORY pIED;
+
+	ULONG i, Hash;
+	PUCHAR ptr;
+
+	PULONG Function, Name;
+	PUSHORT Ordinal;
+
+	PPEB Peb;
+	PLDR_DATA_TABLE_ENTRY Ldr;
+
+	PVOID Kernel32Base;
+	char hashChar[20];
+
+	// Get the base address of kernel32
+
+	Peb = NtCurrentPeb();
+	Ldr = CONTAINING_RECORD(Peb->Ldr->InMemoryOrderModuleList.Flink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks.Flink); // Get the first entry (process executable)
+
+	Ldr = CONTAINING_RECORD(Ldr->InMemoryOrderLinks.Flink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks.Flink); // Second entry (ntdll)
+	Ldr = CONTAINING_RECORD(Ldr->InMemoryOrderLinks.Flink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks.Flink); // kernel32 is located at third entry
+
+	Kernel32Base = Ldr->DllBase;
+
+	pIDH = (PIMAGE_DOS_HEADER)Kernel32Base;
+	pINH = (PIMAGE_NT_HEADERS)((PUCHAR)Kernel32Base + pIDH->e_lfanew);
+
+	pIED = (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)Kernel32Base + pINH->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+
+	Function = (PULONG)((PUCHAR)Kernel32Base + pIED->AddressOfFunctions);
+	Name = (PULONG)((PUCHAR)Kernel32Base + pIED->AddressOfNames);
+
+	Ordinal = (PUSHORT)((PUCHAR)Kernel32Base + pIED->AddressOfNameOrdinals);
+
+	for (i = 0; i < pIED->NumberOfNames; i++)
+	{
+		Hash = 0;
+		ptr = (PUCHAR)Kernel32Base + Name[i];
+
+		for (i = 0; i < pIED->NumberOfNames; i++)
+		{
+			Hash = 0;
+			ptr = (PUCHAR)Kernel32Base + Name[i];
+
+			while (*ptr)
+			{
+				Hash = ((Hash << 8) + Hash + *ptr) ^ (*ptr << 16);
+				ptr++;
+			}
+
+			sprintf(hashChar, "%x", Hash);
+
+			std::cout << hashChar << " - " << (char*)Kernel32Base + Name[i] << std::endl;
+
+		}
+	}
+}
 
 void WINAPI Code()
 {
@@ -88,7 +151,7 @@ int main(int argc,char* argv[])
 	NTSTATUS status;
 	BOOLEAN bl;
 	
-	if(argc<3)
+	if(argc<2)
 	{
 		printf("\nUsage:\n");
 
@@ -97,6 +160,9 @@ int main(int argc,char* argv[])
 
 		printf("\ncode /dump [Path]\n");
 		printf("Dump the shellcode into file\n");
+
+		printf("\ncode /hash\n");
+		printf("Print the hashtable into CLI\n");
 
 		return -1;
 	}
@@ -194,6 +260,11 @@ int main(int argc,char* argv[])
 		printf("Shellcode size: %u bytes\n",CodeSize);
 
 		NtClose(hFile);
+	}
+
+	else if (!stricmp(argv[1], "/hash"))
+	{
+		calcHash();
 	}
 
 	else
